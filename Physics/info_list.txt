@@ -1,0 +1,3 @@
+name = 'Hyeonuk'
+student_num = '201421183'
+lecture_name = 'Physics_programming'
