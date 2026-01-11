@@ -88,8 +88,9 @@ export class VoiceAgent extends BaseAgent<VoiceAgentInput, VoiceAgentOutput> {
   readonly name = 'voice-agent';
   readonly description = 'Generates voice narration using Gemini 2.5 TTS';
 
-  protected readonly inputSchema = VoiceAgentInputSchema as any;
-  protected readonly outputSchema = VoiceAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = VoiceAgentInputSchema as ZodSchema<VoiceAgentInput>;
+  protected readonly outputSchema = VoiceAgentOutputSchema as ZodSchema<VoiceAgentOutput>;
 
   // No LLM needed - uses Gemini TTS directly
   protected readonly systemPrompt = '';

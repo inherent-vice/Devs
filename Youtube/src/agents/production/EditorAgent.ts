@@ -119,8 +119,9 @@ export class EditorAgent extends BaseAgent<EditorAgentInput, EditorAgentOutput> 
   readonly name = 'editor-agent';
   readonly description = 'Generates editing instructions and timeline assembly';
 
-  protected readonly inputSchema = EditorAgentInputSchema as any;
-  protected readonly outputSchema = EditorAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = EditorAgentInputSchema as ZodSchema<EditorAgentInput>;
+  protected readonly outputSchema = EditorAgentOutputSchema as ZodSchema<EditorAgentOutput>;
 
   protected model = gemini3Flash;
   protected temperature = 0.5;

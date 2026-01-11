@@ -95,8 +95,9 @@ export class ScriptAgent extends BaseAgent<ScriptAgentInput, ScriptAgentOutput> 
   readonly name = 'script-agent';
   readonly description = 'Generates complete scripts with storyboards';
 
-  protected readonly inputSchema = ScriptAgentInputSchema as any;
-  protected readonly outputSchema = ScriptAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = ScriptAgentInputSchema as ZodSchema<ScriptAgentInput>;
+  protected readonly outputSchema = ScriptAgentOutputSchema as ZodSchema<ScriptAgentOutput>;
 
   protected model = gemini3Flash;
   protected temperature = 0.8; // High creativity for scriptwriting

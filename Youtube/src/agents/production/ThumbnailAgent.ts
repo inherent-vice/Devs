@@ -111,8 +111,9 @@ export class ThumbnailAgent extends BaseAgent<ThumbnailAgentInput, ThumbnailAgen
   readonly name = 'thumbnail-agent';
   readonly description = 'Generates click-worthy thumbnails using Nano Banana Pro';
 
-  protected readonly inputSchema = ThumbnailAgentInputSchema as any;
-  protected readonly outputSchema = ThumbnailAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = ThumbnailAgentInputSchema as ZodSchema<ThumbnailAgentInput>;
+  protected readonly outputSchema = ThumbnailAgentOutputSchema as ZodSchema<ThumbnailAgentOutput>;
 
   // Uses Nano Banana Pro (Gemini 3 Pro Image)
   protected model = nanoBananaPro;

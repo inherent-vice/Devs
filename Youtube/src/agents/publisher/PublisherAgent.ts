@@ -120,8 +120,9 @@ export class PublisherAgent extends BaseAgent<PublisherInput, PublisherOutput> {
   readonly name = 'publisher-agent';
   readonly description = 'Optimizes metadata and publishes videos to YouTube';
 
-  protected readonly inputSchema = PublisherInputSchema as any;
-  protected readonly outputSchema = PublisherOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = PublisherInputSchema as ZodSchema<PublisherInput>;
+  protected readonly outputSchema = PublisherOutputSchema as ZodSchema<PublisherOutput>;
 
   protected readonly systemPrompt = `You are a YouTube SEO and publishing expert.
 Your task is to optimize video metadata for maximum discoverability and engagement.

@@ -94,8 +94,9 @@ export class CriticAgent extends BaseAgent<CriticAgentInput, CriticAgentOutput> 
   readonly name = 'critic-agent';
   readonly description = 'Evaluates content quality with Gemini 3 Pro precision';
 
-  protected readonly inputSchema = CriticAgentInputSchema as any;
-  protected readonly outputSchema = CriticAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = CriticAgentInputSchema as ZodSchema<CriticAgentInput>;
+  protected readonly outputSchema = CriticAgentOutputSchema as ZodSchema<CriticAgentOutput>;
 
   // Quality evaluation uses Gemini 3 Pro for highest accuracy
   protected model = gemini3Pro;

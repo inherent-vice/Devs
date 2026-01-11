@@ -97,8 +97,9 @@ export class VideoAgent extends BaseAgent<VideoAgentInput, VideoAgentOutput> {
   readonly name = 'video-agent';
   readonly description = 'Generates video content using Veo 3.1';
 
-  protected readonly inputSchema = VideoAgentInputSchema as any;
-  protected readonly outputSchema = VideoAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = VideoAgentInputSchema as ZodSchema<VideoAgentInput>;
+  protected readonly outputSchema = VideoAgentOutputSchema as ZodSchema<VideoAgentOutput>;
 
   // Video agent uses Veo 3.1 directly, not Gemini
   protected model = veo31;

@@ -64,6 +64,12 @@ const VEO_CONFIG = {
     fast: 0.15, // per second
     standard: 0.40, // per second
   },
+  // Retry configuration
+  retry: {
+    maxRetries: 3,
+    baseDelayMs: 2000,
+    maxDelayMs: 30000,
+  },
   // AI Studio endpoints (generativelanguage.googleapis.com)
   aiStudio: {
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
@@ -135,6 +141,46 @@ export class VeoClient {
       throw new Error('No session set. Call setSession() first.');
     }
     return this.currentSessionId;
+  }
+
+  /**
+   * Sleep helper for retry delays
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Execute with retry logic for transient failures
+   */
+  private async withRetry<T>(
+    operation: () => Promise<T>,
+    operationName: string
+  ): Promise<T> {
+    const { maxRetries, baseDelayMs, maxDelayMs } = VEO_CONFIG.retry;
+    let lastError: Error | null = null;
+
+    for (let retry = 0; retry < maxRetries; retry++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
+        const isRateLimit = error.message?.includes('429') || error.message?.includes('quota') || error.message?.includes('rate limit');
+        const isRetryable = isRateLimit || error.message?.includes('503') || error.message?.includes('timeout');
+
+        if (isRetryable && retry < maxRetries - 1) {
+          const delayMs = Math.min(baseDelayMs * Math.pow(2, retry), maxDelayMs);
+          console.log(`[VeoClient] ${operationName} failed (${isRateLimit ? 'rate limited' : 'retryable error'}). Waiting ${(delayMs / 1000).toFixed(1)}s before retry ${retry + 1}/${maxRetries}...`);
+          await this.sleep(delayMs);
+          continue;
+        }
+
+        // Non-retryable error or max retries reached
+        break;
+      }
+    }
+
+    throw lastError || new Error(`${operationName} failed after ${maxRetries} retries`);
   }
 
   // ===========================================

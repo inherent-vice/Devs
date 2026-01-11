@@ -119,8 +119,9 @@ export class SubtitleAgent extends BaseAgent<SubtitleInput, SubtitleOutput> {
   readonly name = 'subtitle-agent';
   readonly description = 'Generates subtitles/captions from script';
 
-  protected readonly inputSchema = SubtitleInputSchema as any;
-  protected readonly outputSchema = SubtitleOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = SubtitleInputSchema as ZodSchema<SubtitleInput>;
+  protected readonly outputSchema = SubtitleOutputSchema as ZodSchema<SubtitleOutput>;
 
   protected model = gemini3Flash;
   protected temperature = 0.3; // Low temperature for consistent timing

@@ -74,8 +74,9 @@ export class TopicAgent extends BaseAgent<TopicAgentInput, TopicAgentOutput> {
   readonly name = 'topic-agent';
   readonly description = 'Selects optimal topic and crafts compelling angles';
 
-  protected readonly inputSchema = TopicAgentInputSchema as any;
-  protected readonly outputSchema = TopicAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = TopicAgentInputSchema as ZodSchema<TopicAgentInput>;
+  protected readonly outputSchema = TopicAgentOutputSchema as ZodSchema<TopicAgentOutput>;
 
   protected model = gemini3Flash;
   protected temperature = 0.7; // Higher for creativity

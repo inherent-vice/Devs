@@ -55,8 +55,9 @@ export class TrendAgent extends BaseAgent<TrendAgentInput, TrendAgentOutput> {
   readonly name = 'trend-agent';
   readonly description = 'Analyzes YouTube trends and identifies content opportunities';
 
-  protected readonly inputSchema = TrendAgentInputSchema as any;
-  protected readonly outputSchema = TrendAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = TrendAgentInputSchema as ZodSchema<TrendAgentInput>;
+  protected readonly outputSchema = TrendAgentOutputSchema as ZodSchema<TrendAgentOutput>;
 
   protected model = gemini3Flash;
   protected temperature = 0.6;

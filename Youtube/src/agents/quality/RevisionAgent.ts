@@ -128,8 +128,9 @@ export class RevisionAgent extends BaseAgent<RevisionAgentInput, RevisionAgentOu
   readonly name = 'revision-agent';
   readonly description = 'Applies revisions based on quality feedback';
 
-  protected readonly inputSchema = RevisionAgentInputSchema as any;
-  protected readonly outputSchema = RevisionAgentOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = RevisionAgentInputSchema as ZodSchema<RevisionAgentInput>;
+  protected readonly outputSchema = RevisionAgentOutputSchema as ZodSchema<RevisionAgentOutput>;
 
   // Uses Gemini 3 Flash for efficient revisions
   protected model = gemini3Flash;

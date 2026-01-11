@@ -158,8 +158,9 @@ export class ImageVideoAgent extends BaseAgent<ImageVideoInput, ImageVideoOutput
   readonly name = 'image-video-agent';
   readonly description = 'Generates video using images + Ken Burns effect + FFmpeg composition';
 
-  protected readonly inputSchema = ImageVideoInputSchema as any;
-  protected readonly outputSchema = ImageVideoOutputSchema as any;
+  // Note: Using type assertion due to Zod's default() creating input/output type asymmetry
+  protected readonly inputSchema = ImageVideoInputSchema as ZodSchema<ImageVideoInput>;
+  protected readonly outputSchema = ImageVideoOutputSchema as ZodSchema<ImageVideoOutput>;
 
   protected model = 'nano-banana-pro'; // Uses Nano Banana Pro for image generation
   protected temperature = 0.7;

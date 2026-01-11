@@ -301,29 +301,63 @@ export const productionFlow = ai.defineFlow(
       );
     }
 
-    const parallelResults = await Promise.all(parallelTasks);
-
-    // Extract results (voiceResult already available from Stage 1)
-    const videoResult = parallelResults[0];
-    const thumbnailResult = parallelResults[1];
-    const subtitleResult = input.generateSubtitles !== false ? parallelResults[2] : null;
+    // Use Promise.allSettled for graceful error handling
+    const parallelSettled = await Promise.allSettled(parallelTasks);
 
     const parallelDuration = Date.now() - parallelStart;
 
-    // Validate parallel results
+    // Extract results with proper error handling
+    const videoSettled = parallelSettled[0];
+    const thumbnailSettled = parallelSettled[1];
+    const subtitleSettled = input.generateSubtitles !== false ? parallelSettled[2] : null;
+
+    // Check for failures and build error report
+    const failures: string[] = [];
+
+    let videoResult: Awaited<typeof parallelTasks[0]> | null = null;
+    let thumbnailResult: Awaited<typeof parallelTasks[1]> | null = null;
+    let subtitleResult: Awaited<typeof parallelTasks[2]> | null = null;
+
+    if (videoSettled.status === 'rejected') {
+      failures.push(`Video generation failed: ${videoSettled.reason?.message || videoSettled.reason}`);
+    } else {
+      videoResult = videoSettled.value;
+      if (!videoResult.success) {
+        failures.push(`Video generation failed: ${videoResult.error?.message}`);
+      }
+    }
+
+    if (thumbnailSettled.status === 'rejected') {
+      failures.push(`Thumbnail generation failed: ${thumbnailSettled.reason?.message || thumbnailSettled.reason}`);
+    } else {
+      thumbnailResult = thumbnailSettled.value;
+      if (!thumbnailResult.success) {
+        failures.push(`Thumbnail generation failed: ${thumbnailResult.error?.message}`);
+      }
+    }
+
+    if (subtitleSettled) {
+      if (subtitleSettled.status === 'rejected') {
+        // Subtitles are non-critical, just log warning
+        console.warn(`[ProductionFlow] Subtitle generation failed (non-critical): ${subtitleSettled.reason?.message || subtitleSettled.reason}`);
+      } else {
+        subtitleResult = subtitleSettled.value;
+      }
+    }
+
+    // Throw if critical components failed
+    if (failures.length > 0) {
+      throw new Error(`Production parallel phase failed:\n${failures.join('\n')}`);
+    }
+
+    // voiceResult was already validated in Stage 1
     if (!voiceResult.success) {
       throw new Error(`Voice generation failed: ${voiceResult.error?.message}`);
     }
-    if (!videoResult.success) {
-      throw new Error(`Video generation failed: ${videoResult.error?.message}`);
-    }
-    if (!thumbnailResult.success) {
-      throw new Error(`Thumbnail generation failed: ${thumbnailResult.error?.message}`);
-    }
 
     const parallelCost =
-      (videoResult.metrics?.cost || 0) +
-      (thumbnailResult.metrics?.cost || 0) +
+      (videoResult?.metrics?.cost || 0) +
+      (thumbnailResult?.metrics?.cost || 0) +
       (subtitleResult?.metrics?.cost || 0);
 
     phases.push({
@@ -336,9 +370,9 @@ export const productionFlow = ai.defineFlow(
 
     console.log(`[ProductionFlow] Parallel phase complete in ${parallelDuration}ms`);
     console.log(`  - Voice: ${voiceResult.data?.duration?.toFixed(1) || 0}s`);
-    console.log(`  - ${useImageMode ? 'Images' : 'Video'}: ${videoResult.data?.clips?.length || 0} ${useImageMode ? 'images' : 'clips'}`);
-    console.log(`  - Thumbnails: ${thumbnailResult.data?.thumbnails?.length || 0} variants`);
-    if (subtitleResult) {
+    console.log(`  - ${useImageMode ? 'Images' : 'Video'}: ${videoResult?.data?.clips?.length || 0} ${useImageMode ? 'images' : 'clips'}`);
+    console.log(`  - Thumbnails: ${thumbnailResult?.data?.thumbnails?.length || 0} variants`);
+    if (subtitleResult?.data) {
       console.log(`  - Subtitles: ${subtitleResult.data?.metadata?.totalCues || 0} cues`);
     }
     console.log(`  - Cost: $${parallelCost.toFixed(4)} (${useImageMode ? '98% savings vs Veo!' : 'Veo'})`);
@@ -355,7 +389,7 @@ export const productionFlow = ai.defineFlow(
           sections: input.script.sections,
           estimatedDuration: input.script.estimatedDuration,
         },
-        videoClips: videoResult.data!.clips.map((c: any) => ({
+        videoClips: videoResult!.data!.clips.map((c: any) => ({
           sceneId: c.sceneId,
           // Handle all possible URL field names for cross-agent compatibility
           url: c.url || c.mediaUrl || c.imageUrl || c.imagePath,
@@ -392,11 +426,11 @@ export const productionFlow = ai.defineFlow(
     console.log(`[ProductionFlow] Complete in ${totalDuration}ms, cost: $${totalCost.toFixed(2)}`);
 
     // Build finalVideo from ImageVideoAgent's composedVideo (if available)
-    const composedVideo = useImageMode ? videoResult.data?.composedVideo : null;
+    const composedVideo = useImageMode ? videoResult?.data?.composedVideo : null;
     const finalVideo = composedVideo ? {
       path: composedVideo.videoPath,
       fileSize: composedVideo.fileSize,
-      duration: videoResult.data?.totalDuration || 0,
+      duration: videoResult?.data?.totalDuration || 0,
       hasAudio: composedVideo.hasAudio,
       hasSubtitles: composedVideo.hasSubtitles,
     } : null;
@@ -408,8 +442,8 @@ export const productionFlow = ai.defineFlow(
     return {
       sessionId: input.sessionId,
       voice: voiceResult.data,
-      video: videoResult.data,
-      thumbnails: thumbnailResult.data,
+      video: videoResult?.data,
+      thumbnails: thumbnailResult?.data,
       subtitles: subtitleResult?.data,
       edited: editorResult.data,
       finalVideo,
