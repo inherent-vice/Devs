@@ -1,0 +1,8 @@
+[
+  {
+    "timestamp": "2026-01-11T04:17:21.976Z",
+    "level": "error",
+    "phase": "research",
+    "message": "Workflow execution failed: Cannot read properties of undefined (reading 'research')"
+  }
+]

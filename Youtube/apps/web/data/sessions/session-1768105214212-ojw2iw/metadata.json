@@ -1,0 +1,11 @@
+{
+  "sessionId": "session-1768105214212-ojw2iw",
+  "name": "워크플로우 2026. 1. 11.",
+  "createdAt": "2026-01-11T04:20:14.226Z",
+  "updatedAt": "2026-01-11T04:20:14.234Z",
+  "status": "failed",
+  "videoType": "shorts",
+  "completedAgents": [],
+  "currentPhase": "research",
+  "error": "Cannot read properties of undefined (reading 'research')"
+}
