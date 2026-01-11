@@ -370,7 +370,7 @@ export class VeoClient {
   }
 
   /**
-   * Call Veo generation API
+   * Call Veo generation API with retry logic
    *
    * Supports both AI Studio and Vertex AI backends.
    */
@@ -378,11 +378,13 @@ export class VeoClient {
     endpoint: string,
     request: any
   ): Promise<{ url: string; fileId: string }> {
-    if (this.useAIStudio) {
-      return this.callAIStudioVeo(request);
-    } else {
-      return this.callVertexAIVeo(endpoint, request);
-    }
+    return this.withRetry(async () => {
+      if (this.useAIStudio) {
+        return this.callAIStudioVeo(request);
+      } else {
+        return this.callVertexAIVeo(endpoint, request);
+      }
+    }, 'Video generation');
   }
 
   /**
@@ -704,14 +706,23 @@ ${request.negativePrompt ? `\nAvoid: ${request.negativePrompt}` : ''}`;
 
   /**
    * Call Veo extension API
+   *
+   * NOTE: Veo video extension API is not yet publicly available.
+   * This is a placeholder for future integration when Google releases
+   * the video extension capability in Veo 3.x.
+   *
+   * Current workaround: The extend() method falls back to generating
+   * a new clip with a continuation prompt.
    */
   private async callVeoExtendAPI(
     request: VeoExtendRequest
   ): Promise<{ url: string; fileId: string }> {
-    console.log(`[VeoClient] Extending video to ${request.targetDuration}s`);
+    console.log(`[VeoClient] Video extension requested to ${request.targetDuration}s`);
+    console.log(`[VeoClient] Note: Veo extension API not yet available - using fallback`);
 
-    // Extend API not yet available; caller will fallback to clip generation.
-    throw new Error('Veo extension API integration pending.');
+    // Veo extension API is not yet publicly available
+    // The caller (extend method) handles this by generating a new clip
+    throw new Error('EXTENSION_NOT_AVAILABLE');
   }
 
   private isLikelyBase64(value: string): boolean {
