@@ -5,7 +5,7 @@
  * Provides detailed feedback across 5 dimensions.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { gemini3Pro } from '../../genkit.config.js';
 import type { AgentContext, AgentResult } from '../base/types.js';
@@ -99,6 +99,7 @@ export class CriticAgent extends BaseAgent<CriticAgentInput, CriticAgentOutput> 
 
   // Quality evaluation uses Gemini 3 Pro for highest accuracy
   protected model = gemini3Pro;
+  protected modelId = 'gemini-3-pro';
   protected temperature = 0.3; // Low temperature for consistent evaluation
   protected maxOutputTokens = 16384;
 

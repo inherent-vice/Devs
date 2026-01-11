@@ -43,11 +43,13 @@ export const ProductionFlowInputSchema = z.object({
   storyboard: z.object({
     scenes: z.array(z.object({
       id: z.string(),
+      sectionId: z.string().optional(),
       description: z.string(),
       prompt: z.string(),
       duration: z.number(),
       priority: z.enum(['hero', 'standard', 'b-roll']),
       visualStyle: z.string().optional(),
+      content: z.string().optional(),
     })),
     totalDuration: z.number(),
     videoType: z.enum(['shorts', 'medium', 'longform']),
@@ -212,6 +214,19 @@ export const productionFlow = ai.defineFlow(
     // ===========================================
     console.log('[ProductionFlow] Stage 2: Parallel generation (Video/Images + Thumbnail + Subtitles)');
     const parallelStart = Date.now();
+    const sectionContent = new Map(
+      input.script.sections.map(section => [section.id, section.content])
+    );
+    const imageStoryboardScenes = input.storyboard.scenes.map((scene, index) => {
+      const sectionId = scene.sectionId || input.script.sections[index]?.id;
+      const fallbackContent = sectionId ? sectionContent.get(sectionId) : input.script.sections[index]?.content;
+      return {
+        ...scene,
+        sectionId,
+        content: scene.content ?? fallbackContent,
+        kenBurns: undefined, // Auto-select Ken Burns effect
+      };
+    });
 
     // Build parallel tasks (without Voice - already done)
     const parallelTasks: Promise<any>[] = [
@@ -222,17 +237,14 @@ export const productionFlow = ai.defineFlow(
               sessionId: context.sessionId,  // Required for storage operations
               storyboard: {
                 ...input.storyboard,
-                scenes: input.storyboard.scenes.map(s => ({
-                  ...s,
-                  kenBurns: undefined, // Auto-select Ken Burns effect
-                })),
+                scenes: imageStoryboardScenes,
               },
               audioPath: audioPath,  // ✅ Pass audio path for composition
-              resolution: '1080p',
+              resolution: input.resolution === '720p' ? '720p' : '1080p',
               aspectRatio: input.videoType === 'shorts' ? '9:16' : '16:9',
               imagesPerMinute: 10,
               fps: 30,
-              includeSubtitles: true,
+              includeSubtitles: input.generateSubtitles !== false,
               composeVideo: true,
             },
             context
@@ -240,7 +252,7 @@ export const productionFlow = ai.defineFlow(
         : videoAgent.execute(
             {
               storyboard: input.storyboard,
-              resolution: '1080p',
+              resolution: input.resolution === '720p' ? '720p' : '1080p',
               fps: 24,
               useNativeAudio: false,
               useFastGeneration: input.useFastGeneration,
@@ -310,7 +322,6 @@ export const productionFlow = ai.defineFlow(
     }
 
     const parallelCost =
-      (voiceResult.metrics?.cost || 0) +
       (videoResult.metrics?.cost || 0) +
       (thumbnailResult.metrics?.cost || 0) +
       (subtitleResult?.metrics?.cost || 0);

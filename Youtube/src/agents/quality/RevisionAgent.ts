@@ -5,7 +5,7 @@
  * Uses Gemini 3 Flash for efficient content modification.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { gemini3Flash } from '../../genkit.config.js';
 import type { AgentContext, AgentResult } from '../base/types.js';

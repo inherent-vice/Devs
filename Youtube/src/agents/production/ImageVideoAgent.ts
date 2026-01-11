@@ -12,7 +12,7 @@
  * Much cheaper alternative to Veo 3.1 ($0.40 -> $0.04 per scene)
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import * as fs from 'fs';
 import * as path from 'path';
 import { BaseAgent } from '../base/BaseAgent.js';

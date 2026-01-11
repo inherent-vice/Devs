@@ -9,7 +9,7 @@
  * - Analytics tracking setup
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { getYouTubeClient, VideoUploadResult } from '../../clients/youtube.js';
 import { getDriveClient } from '../../clients/drive.js';

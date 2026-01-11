@@ -5,7 +5,7 @@
  * Crafts compelling angles, hooks, and titles for maximum engagement.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { gemini3Flash } from '../../genkit.config.js';
 import type { AgentContext, AgentResult, VideoType, TopicSelection } from '../base/types.js';

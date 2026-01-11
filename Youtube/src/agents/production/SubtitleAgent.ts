@@ -5,7 +5,7 @@
  * Supports SRT, VTT, and styled ASS formats.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { gemini3Flash } from '../../genkit.config.js';
 import type { AgentContext, AgentResult } from '../base/types.js';
@@ -178,7 +178,7 @@ KOREAN SUBTITLE RULES:
           metadata: {
             totalCues: cues.length,
             totalDuration,
-            averageCueDuration: totalDuration / cues.length,
+            averageCueDuration: cues.length > 0 ? totalDuration / cues.length : 0,
             language: input.language,
             wordsPerMinute: input.wordsPerMinute,
           },
@@ -223,6 +223,10 @@ KOREAN SUBTITLE RULES:
 
       // Calculate time per chunk based on text length
       const totalChars = chunks.reduce((sum, c) => sum + c.length, 0);
+      if (totalChars === 0) {
+        currentTime += sectionDuration;
+        continue;
+      }
       const charsPerMs = totalChars / sectionDuration;
 
       let sectionTime = currentTime;

@@ -5,11 +5,18 @@
  * Creates 4K thumbnails optimized for YouTube CTR.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { nanoBananaPro } from '../../genkit.config.js';
 import type { AgentContext, AgentResult } from '../base/types.js';
 import { getNanoBananaClient } from '../../clients/index.js';
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 // ===========================================
 // Input/Output Schemas
@@ -263,8 +270,78 @@ DESIGN PRINCIPLES:
     const config = THUMBNAIL_CONFIG[platform];
     console.log(`[ThumbnailAgent] Resizing to ${config.width}x${config.height}`);
 
-    // TODO: Implement actual resize using image processing
-    return `${thumbnailUrl}?w=${config.width}&h=${config.height}`;
+    const tempDir = path.join(os.tmpdir(), 'youtube-agentic-ai');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const { inputPath, cleanup } = await this.ensureLocalImage(thumbnailUrl, tempDir);
+    const outputPath = path.join(
+      tempDir,
+      `thumb-${Date.now()}-${config.width}x${config.height}.jpg`
+    );
+
+    await this.resizeImage(inputPath, outputPath, config.width, config.height);
+
+    if (cleanup) {
+      try {
+        fs.unlinkSync(inputPath);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+
+    return outputPath;
+  }
+
+  private async ensureLocalImage(
+    source: string,
+    tempDir: string
+  ): Promise<{ inputPath: string; cleanup: boolean }> {
+    if (fs.existsSync(source)) {
+      return { inputPath: source, cleanup: false };
+    }
+
+    let url = source;
+    if (source.startsWith('gs://')) {
+      const match = source.match(/gs:\/\/([^\/]+)\/(.+)/);
+      if (match) {
+        url = `https://storage.googleapis.com/${match[1]}/${match[2]}`;
+      }
+    }
+
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      throw new Error(`Unsupported thumbnail source: ${source}`);
+    }
+
+    const downloadPath = path.join(tempDir, `thumb-src-${Date.now()}.jpg`);
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download thumbnail: ${response.statusText}`);
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(downloadPath, buffer);
+    return { inputPath: downloadPath, cleanup: true };
+  }
+
+  private resizeImage(
+    inputPath: string,
+    outputPath: string,
+    width: number,
+    height: number
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .outputOptions([
+          '-frames:v', '1',
+          '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+        ])
+        .output(outputPath)
+        .on('end', () => resolve())
+        .on('error', (err: Error) => reject(err))
+        .run();
+    });
   }
 
   /**

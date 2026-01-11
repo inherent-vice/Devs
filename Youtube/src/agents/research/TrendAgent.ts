@@ -5,7 +5,7 @@
  * Identifies viral patterns, emerging topics, and content opportunities.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { gemini3Flash } from '../../genkit.config.js';
 import type { AgentContext, AgentResult, VideoType } from '../base/types.js';

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 // ===========================================
-// API Authentication Middleware
+// API Authentication Middleware (Secure Version)
 // ===========================================
 
 /**
@@ -15,6 +15,8 @@ const SESSION_CONFIG = {
   TOKEN_PREFIX: 'yt_sess_',
   /** Minimum token length */
   MIN_TOKEN_LENGTH: 32,
+  /** Clock skew tolerance in milliseconds (5 minutes) */
+  CLOCK_SKEW_MS: 5 * 60 * 1000,
 };
 
 /**
@@ -32,13 +34,80 @@ const PROTECTED_API_ROUTES = [
 const PUBLIC_ROUTES = [
   '/api/health',
   '/api/status',
+  '/api/env-status',
+  '/api/estimate',
   '/api/preview', // Voice preview is public
 ];
 
 /**
+ * Constant-time string comparison to prevent timing attacks
+ */
+function secureCompare(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
+}
+
+/**
+ * Convert string to ArrayBuffer for crypto operations
+ */
+function stringToArrayBuffer(str: string): ArrayBuffer {
+  const encoder = new TextEncoder();
+  return encoder.encode(str).buffer;
+}
+
+/**
+ * Convert ArrayBuffer to hex string
+ */
+function arrayBufferToHex(buffer: ArrayBuffer): string {
+  const byteArray = new Uint8Array(buffer);
+  return Array.from(byteArray)
+    .map(byte => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Generate HMAC-SHA256 signature using Web Crypto API
+ */
+async function generateHmacSignature(data: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    stringToArrayBuffer(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    stringToArrayBuffer(data)
+  );
+
+  return arrayBufferToHex(signature);
+}
+
+/**
+ * Verify HMAC-SHA256 signature
+ */
+async function verifyHmacSignature(
+  data: string,
+  signature: string,
+  secret: string
+): Promise<boolean> {
+  const expectedSignature = await generateHmacSignature(data, secret);
+  return secureCompare(signature, expectedSignature);
+}
+
+/**
  * Main middleware function
  */
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Only check API routes
@@ -60,29 +129,46 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Skip auth in development with SKIP_AUTH flag
-  if (process.env.NODE_ENV === 'development' &&
-      process.env.SKIP_AUTH === 'true') {
+  // SKIP_AUTH only allowed in development AND must be explicitly set
+  // WARNING: Never enable in production
+  if (
+    process.env.NODE_ENV === 'development' &&
+    process.env.SKIP_AUTH === 'true'
+  ) {
+    console.warn('[Middleware] SKIP_AUTH is enabled - authentication bypassed');
     return NextResponse.next();
   }
 
-  // Authentication method 1: API Key header
+  // In production, SESSION_SECRET is required
+  if (process.env.NODE_ENV === 'production' && !process.env.SESSION_SECRET) {
+    console.error('[Middleware] SESSION_SECRET is required in production');
+    return NextResponse.json(
+      { error: 'Server configuration error' },
+      { status: 500 }
+    );
+  }
+
+  // Authentication method 1: API Key header (constant-time comparison)
   const apiKey = request.headers.get('x-api-key');
-  if (apiKey && apiKey === process.env.API_KEY) {
+  if (apiKey && process.env.API_KEY && secureCompare(apiKey, process.env.API_KEY)) {
     return NextResponse.next();
   }
 
   // Authentication method 2: Session cookie
   const sessionToken = request.cookies.get('session-token');
-  if (sessionToken && isValidSession(sessionToken.value)) {
-    return NextResponse.next();
+  if (sessionToken) {
+    const isValid = await isValidSession(sessionToken.value);
+    if (isValid) {
+      return NextResponse.next();
+    }
   }
 
   // Authentication method 3: Bearer token
   const authHeader = request.headers.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
     const token = authHeader.slice(7);
-    if (isValidToken(token)) {
+    const isValid = await isValidToken(token);
+    if (isValid) {
       return NextResponse.next();
     }
   }
@@ -99,8 +185,7 @@ export function middleware(request: NextRequest) {
 
 /**
  * Session token structure:
- * Format: yt_sess_{userId}_{timestamp}_{signature}
- * Example: yt_sess_user123_1704067200000_abc123def456
+ * Format: yt_sess_{userId}_{timestamp}_{hmacSignature}
  */
 interface ParsedSessionToken {
   userId: string;
@@ -137,10 +222,9 @@ function parseSessionToken(token: string): ParsedSessionToken | null {
 }
 
 /**
- * Validate session token
- * Checks format, expiration, and basic signature validation
+ * Validate session token with HMAC-SHA256
  */
-function isValidSession(token: string): boolean {
+async function isValidSession(token: string): Promise<boolean> {
   const parsed = parseSessionToken(token);
   if (!parsed) {
     return false;
@@ -152,58 +236,36 @@ function isValidSession(token: string): boolean {
     return false;
   }
 
-  // Check if timestamp is not in the future (clock skew tolerance: 5 min)
-  if (parsed.timestamp > now + 5 * 60 * 1000) {
+  // Check if timestamp is not in the future (with clock skew tolerance)
+  if (parsed.timestamp > now + SESSION_CONFIG.CLOCK_SKEW_MS) {
     return false;
   }
 
-  // Validate signature using HMAC-like verification
-  // In production, use crypto.subtle.verify with proper key management
-  const expectedSignature = generateSignature(parsed.userId, parsed.timestamp);
-  if (parsed.signature !== expectedSignature) {
-    // Fallback: If no secret is configured, accept any valid format
-    if (!process.env.SESSION_SECRET) {
-      return true;
-    }
+  // Get session secret - required for validation
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    // In development without secret, log warning but reject
+    console.warn('[Middleware] SESSION_SECRET not set - session validation disabled');
     return false;
   }
 
-  return true;
+  // Verify HMAC signature
+  const dataToSign = `${parsed.userId}:${parsed.timestamp}`;
+  return verifyHmacSignature(dataToSign, parsed.signature, secret);
 }
 
 /**
- * Generate signature for session token
- * Uses a simple hash for edge runtime compatibility
+ * Validate bearer token (API key or JWT)
  */
-function generateSignature(userId: string, timestamp: number): string {
-  const secret = process.env.SESSION_SECRET || 'default-dev-secret';
-  const data = `${userId}:${timestamp}:${secret}`;
-
-  // Simple hash for edge runtime (not cryptographically secure for production)
-  // In production, use Web Crypto API: crypto.subtle.sign
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-
-  return Math.abs(hash).toString(36).padStart(8, '0');
-}
-
-/**
- * Validate bearer token (JWT or API key)
- */
-function isValidToken(token: string): boolean {
-  // Method 1: Direct API key comparison
-  if (token === process.env.API_KEY) {
+async function isValidToken(token: string): Promise<boolean> {
+  // Method 1: Direct API key comparison (constant-time)
+  if (process.env.API_KEY && secureCompare(token, process.env.API_KEY)) {
     return true;
   }
 
-  // Method 2: JWT validation (basic structure check)
-  // Full JWT validation would use jose or similar library
+  // Method 2: JWT validation
   if (isValidJwtFormat(token)) {
-    return validateJwtToken(token);
+    return await validateJwtToken(token);
   }
 
   return false;
@@ -221,7 +283,6 @@ function isValidJwtFormat(token: string): boolean {
   // Check if each part is valid base64url
   return parts.every(part => {
     try {
-      // Base64url decode attempt
       const decoded = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
       return decoded.length > 0;
     } catch {
@@ -231,11 +292,15 @@ function isValidJwtFormat(token: string): boolean {
 }
 
 /**
- * Validate JWT token payload
+ * Validate JWT token with HMAC-SHA256 signature verification
  */
-function validateJwtToken(token: string): boolean {
+async function validateJwtToken(token: string): Promise<boolean> {
   try {
     const parts = token.split('.');
+    const headerPayload = `${parts[0]}.${parts[1]}`;
+    const signature = parts[2];
+
+    // Decode payload
     const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
     const payload = JSON.parse(atob(payloadBase64));
 
@@ -254,6 +319,19 @@ function validateJwtToken(token: string): boolean {
       return false;
     }
 
+    // Verify signature if secret is configured
+    const secret = process.env.SESSION_SECRET;
+    if (secret) {
+      // Convert base64url signature to hex for comparison
+      const signatureBytes = atob(signature.replace(/-/g, '+').replace(/_/g, '/'));
+      const signatureHex = Array.from(signatureBytes)
+        .map(c => c.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join('');
+
+      return verifyHmacSignature(headerPayload, signatureHex, secret);
+    }
+
+    // Without secret, only validate payload claims
     return true;
   } catch {
     return false;
@@ -261,10 +339,25 @@ function validateJwtToken(token: string): boolean {
 }
 
 /**
+ * Create a new session token (utility for API routes)
+ */
+export async function createSessionToken(userId: string): Promise<string | null> {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    console.error('[Middleware] Cannot create session token without SESSION_SECRET');
+    return null;
+  }
+
+  const timestamp = Date.now();
+  const dataToSign = `${userId}:${timestamp}`;
+  const signature = await generateHmacSignature(dataToSign, secret);
+
+  return `${SESSION_CONFIG.TOKEN_PREFIX}${userId}_${timestamp}_${signature}`;
+}
+
+/**
  * Middleware configuration
  */
 export const config = {
-  matcher: [
-    '/api/:path*',
-  ],
+  matcher: ['/api/:path*'],
 };

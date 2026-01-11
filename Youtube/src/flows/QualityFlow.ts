@@ -57,7 +57,7 @@ export const QualityFlowInputSchema = z.object({
     clipCount: z.number(),
     totalDuration: z.number(),
     resolution: z.string(),
-    heroClipCount: z.number(),
+    heroClipCount: z.number().default(0),
   }).optional(),
   videoType: z.enum(['shorts', 'medium', 'longform']),
   targetAudience: z.string().optional(),

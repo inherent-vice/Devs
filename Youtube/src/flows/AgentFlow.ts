@@ -57,10 +57,12 @@ function inferVideoType(input: any): "shorts" | "medium" | "longform" {
 
 function resolveAgent(agentId: string, input: any) {
   if (agentId === "video") {
-    const mode = input?.mode || input?.videoMode || input?.config?.mode;
-    if (mode && mode !== "veo") {
-      return imageVideoAgent;
+    const rawMode = input?.mode || input?.videoMode || input?.config?.mode || "";
+    const mode = typeof rawMode === "string" ? rawMode.toLowerCase() : "";
+    if (mode === "veo" || mode === "video") {
+      return videoAgent;
     }
+    return imageVideoAgent;
   }
 
   const registry: Record<string, any> = {
@@ -103,7 +105,11 @@ export const agentExecutionFlow = ai.defineFlow(
       videoType: inferVideoType(input),
     };
 
-    const result = await agent.execute(input, context);
+    const normalizedInput =
+      agent === imageVideoAgent && !input?.sessionId
+        ? { ...input, sessionId }
+        : input;
+    const result = await agent.execute(normalizedInput, context);
     if (!result.success) {
       return {
         success: false,

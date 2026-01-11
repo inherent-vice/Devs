@@ -32,7 +32,8 @@ interface PendingTask {
   task: Task;
   resolve: (result: TaskResult) => void;
   reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
+  timeout?: NodeJS.Timeout;
+  cancelled: boolean;
 }
 
 interface RouterOptions {
@@ -139,6 +140,34 @@ export class A2ARouter extends EventEmitter {
    * Route task to a specific agent
    */
   private async routeTask(task: Task, targetAgentId: string): Promise<TaskResult> {
+    return new Promise(async (resolve, reject) => {
+      const pending: PendingTask = {
+        task,
+        resolve,
+        reject,
+        cancelled: false,
+      };
+      this.pendingTasks.set(task.id, pending);
+
+      try {
+        const result = await this.executeTask(task, targetAgentId);
+        if (!pending.cancelled) {
+          resolve(result);
+        }
+      } catch (error) {
+        if (!pending.cancelled) {
+          reject(error as Error);
+        }
+      } finally {
+        if (pending.timeout) {
+          clearTimeout(pending.timeout);
+        }
+        this.pendingTasks.delete(task.id);
+      }
+    });
+  }
+
+  private async executeTask(task: Task, targetAgentId: string): Promise<TaskResult> {
     const startTime = Date.now();
 
     // Check if we have a local handler
@@ -398,7 +427,10 @@ export class A2ARouter extends EventEmitter {
   cancelTask(taskId: string): boolean {
     const pending = this.pendingTasks.get(taskId);
     if (pending) {
-      clearTimeout(pending.timeout);
+      pending.cancelled = true;
+      if (pending.timeout) {
+        clearTimeout(pending.timeout);
+      }
       pending.reject(new A2AError('Task cancelled', 'TASK_CANCELLED', false));
       this.pendingTasks.delete(taskId);
       return true;

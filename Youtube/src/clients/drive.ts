@@ -7,10 +7,15 @@
 
 import { google, drive_v3 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
+import ffmpeg from 'fluent-ffmpeg';
+import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import { getEnv } from '../utils/env.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { Readable } from 'stream';
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 // ===========================================
 // Types
@@ -30,6 +35,15 @@ export interface DriveUploadResult {
   size: number;
   mimeType: string;
 }
+
+export type DriveAssetType =
+  | 'audio'
+  | 'video'
+  | 'thumbnail'
+  | 'checkpoint'
+  | 'export'
+  | 'scenes'
+  | 'subtitles';
 
 export interface DriveFolderStructure {
   root: string;
@@ -133,7 +147,7 @@ export class DriveClient {
   async uploadFile(
     localPath: string,
     filename: string,
-    type: 'audio' | 'video' | 'thumbnail' | 'checkpoint' | 'export',
+    type: DriveAssetType,
     options: DriveUploadOptions = {}
   ): Promise<DriveUploadResult> {
     await this.initialize();
@@ -183,7 +197,7 @@ export class DriveClient {
   async uploadBuffer(
     buffer: Buffer,
     filename: string,
-    type: 'audio' | 'video' | 'thumbnail' | 'checkpoint' | 'export',
+    type: DriveAssetType,
     options: DriveUploadOptions = {}
   ): Promise<DriveUploadResult> {
     await this.initialize();
@@ -237,7 +251,7 @@ export class DriveClient {
   async uploadBase64(
     base64Data: string,
     filename: string,
-    type: 'audio' | 'video' | 'thumbnail' | 'checkpoint' | 'export',
+    type: DriveAssetType,
     options: DriveUploadOptions = {}
   ): Promise<DriveUploadResult> {
     const buffer = Buffer.from(base64Data, 'base64');
@@ -299,7 +313,7 @@ export class DriveClient {
   /**
    * List files in folder
    */
-  async list(type: 'audio' | 'video' | 'thumbnail' | 'checkpoint' | 'export'): Promise<drive_v3.Schema$File[]> {
+  async list(type: DriveAssetType): Promise<drive_v3.Schema$File[]> {
     await this.initialize();
 
     const folderId = this.folders![type];
@@ -365,7 +379,7 @@ export class DriveClient {
    * Generate unique filename
    */
   generateFilename(
-    type: 'audio' | 'video' | 'thumbnail' | 'checkpoint' | 'export',
+    type: DriveAssetType,
     sessionId: string,
     originalName: string
   ): string {
@@ -403,6 +417,29 @@ export class DriveClient {
     return mimeTypes[ext] || 'application/octet-stream';
   }
 
+  private async createPlaceholderImage(
+    text: string,
+    width: number,
+    height: number,
+    outputPath: string
+  ): Promise<void> {
+    const safeText = text.replace(/'/g, "\\'");
+
+    await new Promise<void>((resolve, reject) => {
+      ffmpeg()
+        .input(`color=c=black:s=${width}x${height}:d=1`)
+        .inputOptions(['-f', 'lavfi'])
+        .videoFilters([
+          `drawtext=text='${safeText}':fontsize=48:fontcolor=white:x=(w-text_w)/2:y=(h-text_h)/2`,
+        ])
+        .outputOptions(['-frames:v', '1'])
+        .output(outputPath)
+        .on('end', () => resolve())
+        .on('error', (err: Error) => reject(err))
+        .run();
+    });
+  }
+
   /**
    * Get direct download URL
    */
@@ -438,7 +475,7 @@ export class DriveClient {
       const result = await this.uploadBase64(
         request.base64Data,
         filename,
-        'scenes' as any,
+        'scenes',
         {
           mimeType: 'image/png',
           description: `Scene image: ${request.prompt.substring(0, 100)}`,
@@ -451,15 +488,40 @@ export class DriveClient {
       };
     }
 
-    // Create a placeholder entry for development
-    // This simulates what would happen with real image generation
-    console.log(`[DriveClient] Scene image placeholder: ${filename} (${request.width}x${request.height})`);
+    console.warn(`[DriveClient] No base64 data provided; generating placeholder image for ${filename}`);
 
-    // Return a placeholder URL for development
-    const placeholderId = `placeholder-${request.imageId}`;
+    const tempDir = path.join(os.tmpdir(), 'youtube-agentic-ai');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    const tempPath = path.join(tempDir, `${request.imageId}-${Date.now()}.png`);
+    await this.createPlaceholderImage(
+      request.prompt.substring(0, 40),
+      request.width,
+      request.height,
+      tempPath
+    );
+
+    const uploaded = await this.uploadFile(
+      tempPath,
+      filename,
+      'scenes',
+      {
+        mimeType: 'image/png',
+        description: `Scene image (placeholder): ${request.prompt.substring(0, 100)}`,
+      }
+    );
+
+    try {
+      fs.unlinkSync(tempPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+
     return {
-      fileId: placeholderId,
-      webViewLink: `https://via.placeholder.com/${request.width}x${request.height}.png?text=${encodeURIComponent(request.prompt.substring(0, 30))}`,
+      fileId: uploaded.fileId,
+      webViewLink: uploaded.webViewLink,
     };
   }
 
@@ -472,7 +534,7 @@ export class DriveClient {
     sessionId: string
   ): Promise<DriveUploadResult> {
     const buffer = Buffer.from(content, 'utf-8');
-    return this.uploadBuffer(buffer, filename, 'subtitles' as any, {
+    return this.uploadBuffer(buffer, filename, 'subtitles', {
       mimeType: 'text/plain',
       description: `Subtitle file for session ${sessionId}`,
     });

@@ -30,6 +30,7 @@ import {
   Image,
 } from "lucide-react";
 import { useWorkflowStore } from "@/lib/workflow/store";
+import { useSettingsStore } from "@/lib/store";
 import type { VideoType } from "@/lib/workflow/types";
 
 // Presets
@@ -68,20 +69,25 @@ interface QuickCreateModeProps {
 
 export function QuickCreateMode({ onOpenDetailedConfig }: QuickCreateModeProps) {
   const { currentConfig, updateConfig, updatePhaseConfig } = useWorkflowStore();
+  const { settings } = useSettingsStore();
 
-  // Local state for quick config
+  // Local state for quick config - initialized from Settings store
   const [topic, setTopic] = useState(currentConfig?.description || "");
   const [script, setScript] = useState("");
   const [targetAudience, setTargetAudience] = useState("일반 시청자");
-  const [videoFormat, setVideoFormat] = useState<VideoType>(currentConfig?.videoType || "medium");
-  const [stylePreset, setStylePreset] = useState("cinematic");
+  const [videoFormat, setVideoFormat] = useState<VideoType>(
+    currentConfig?.videoType || settings.defaultVideoType || "medium"
+  );
+  const [stylePreset, setStylePreset] = useState(settings.defaultStyle || "cinematic");
   const [colorTone, setColorTone] = useState("neutral");
-  const [voiceName, setVoiceName] = useState(currentConfig?.phases?.production?.voice?.voiceName || "Kore");
+  const [voiceName, setVoiceName] = useState(
+    currentConfig?.phases?.production?.voice?.voiceName || settings.defaultVoice || "Kore"
+  );
   const [voiceSpeed, setVoiceSpeed] = useState(currentConfig?.phases?.production?.voice?.speed || 1.0);
   const [resolution, setResolution] = useState("1080p");
   const [subtitles, setSubtitles] = useState(true);
   const [thumbnailVariants, setThumbnailVariants] = useState(3);
-  const [textModel, setTextModel] = useState("gemini-3-flash");
+  const [textModel, setTextModel] = useState(settings.defaultModels?.text || "gemini-3-flash");
 
   // Sync to workflow store
   const syncToStore = useCallback(() => {

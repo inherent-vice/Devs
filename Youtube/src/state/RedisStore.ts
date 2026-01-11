@@ -1,100 +1,150 @@
 /**
- * Session Store
+ * Redis Session Store
  *
- * Manages session state throughout the video production pipeline.
- * Provides CRUD operations and state transitions.
+ * Production-ready session storage using Redis.
+ * Provides persistence, distributed access, and automatic expiration.
+ *
+ * Note: Requires 'ioredis' package to be installed (npm install ioredis)
  */
 
-import { z } from 'zod';
-import type {
-  SessionInput,
-  VideoType,
-  SessionStatus,
-  Checkpoint,
-} from '../schemas/common.schema.js';
+// Dynamic import for Redis - allows build without ioredis installed
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type RedisClient = any;
+
+import type { ISessionStore } from './ISessionStore.js';
+import type { SessionState } from './SessionStore.js';
+import type { SessionInput, SessionStatus, VideoType } from '../schemas/common.schema.js';
 
 // ===========================================
-// Session State Schema
+// Configuration
 // ===========================================
 
-export const SessionStateSchema = z.object({
-  id: z.string().min(1),
-  status: z.enum([
-    'created',
-    'researching',
-    'producing',
-    'reviewing',
-    'publishing',
-    'completed',
-    'failed',
-  ]),
-  input: z.object({
-    idea: z.string(),
-    videoType: z.enum(['shorts', 'medium', 'longform']),
-    targetAudience: z.string().optional(),
-    style: z.string().optional(),
-    language: z.string().default('ko'),
-  }),
-  research: z.object({
-    trends: z.array(z.unknown()).optional(),
-    topic: z.unknown().optional(),
-    script: z.unknown().optional(),
-    storyboard: z.unknown().optional(),
-  }).optional(),
-  production: z.object({
-    audio: z.unknown().optional(),
-    videos: z.array(z.unknown()).optional(),
-    thumbnails: z.array(z.unknown()).optional(),
-    edited: z.unknown().optional(),
-  }).optional(),
-  quality: z.object({
-    iterations: z.number().default(0),
-    scores: z.array(z.unknown()).default([]),
-    finalScore: z.number().optional(),
-    verdict: z.string().optional(),
-  }).optional(),
-  publishing: z.object({
-    metadata: z.unknown().optional(),
-    result: z.unknown().optional(),
-  }).optional(),
-  metadata: z.object({
-    createdAt: z.date(),
-    updatedAt: z.date(),
-    completedAt: z.date().optional(),
-    totalCost: z.number().default(0),
-    totalDuration: z.number().optional(),
-    errorCount: z.number().default(0),
-  }),
-  checkpoints: z.array(z.object({
-    id: z.string(),
-    phase: z.string(),
-    timestamp: z.date(),
-    cost: z.number(),
-  })).default([]),
-  errors: z.array(z.object({
-    phase: z.string(),
-    message: z.string(),
-    timestamp: z.date(),
-  })).default([]),
-});
-
-export type SessionState = z.infer<typeof SessionStateSchema>;
+const REDIS_CONFIG = {
+  /** Key prefix for session data */
+  KEY_PREFIX: 'yt:session:',
+  /** Key for session index (set of all session IDs) */
+  INDEX_KEY: 'yt:sessions',
+  /** Session TTL in seconds (7 days) */
+  SESSION_TTL: 7 * 24 * 60 * 60,
+  /** Active session TTL in seconds (24 hours) */
+  ACTIVE_SESSION_TTL: 24 * 60 * 60,
+};
 
 // ===========================================
-// Session Store Class
+// Redis Store Implementation
 // ===========================================
 
-export class SessionStore {
-  private sessions = new Map<string, SessionState>();
+export class RedisStore implements ISessionStore {
+  private client: RedisClient;
+  private connected: boolean = false;
+  private initialized: boolean = false;
+
+  constructor(redisUrl?: string) {
+    const url = redisUrl || process.env.REDIS_URL || 'redis://localhost:6379';
+
+    // Lazy initialization - will be done on first use
+    this.initClient(url);
+  }
+
+  private async initClient(url: string): Promise<void> {
+    if (this.initialized) return;
+
+    try {
+      const redisModule = await import('ioredis');
+      const Redis = (redisModule as { default?: any }).default ?? redisModule;
+      this.client = new Redis(url, {
+        maxRetriesPerRequest: 3,
+        lazyConnect: true,
+        retryStrategy(times: number) {
+          const delay = Math.min(times * 50, 2000);
+          return delay;
+        },
+      });
+
+      this.client.on('connect', () => {
+        this.connected = true;
+        console.log('[RedisStore] Connected to Redis');
+      });
+
+      this.client.on('error', (err: Error) => {
+        console.error('[RedisStore] Redis error:', err.message);
+      });
+
+      this.client.on('close', () => {
+        this.connected = false;
+        console.log('[RedisStore] Disconnected from Redis');
+      });
+
+      this.initialized = true;
+    } catch (error) {
+      console.error('[RedisStore] Failed to initialize Redis client. Is ioredis installed?');
+      throw error;
+    }
+  }
+
+  private async ensureClient(): Promise<void> {
+    if (!this.initialized) {
+      const url = process.env.REDIS_URL || 'redis://localhost:6379';
+      await this.initClient(url);
+    }
+  }
+
+  // ===========================================
+  // Connection Management
+  // ===========================================
+
+  async connect(): Promise<void> {
+    await this.ensureClient();
+    if (!this.connected) {
+      await this.client.connect();
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    await this.ensureClient();
+    if (this.connected) {
+      await this.client.quit();
+      this.connected = false;
+    }
+  }
+
+  isConnected(): boolean {
+    return this.connected;
+  }
+
+  // ===========================================
+  // Helper Methods
+  // ===========================================
+
+  private sessionKey(sessionId: string): string {
+    return `${REDIS_CONFIG.KEY_PREFIX}${sessionId}`;
+  }
+
+  private serialize(session: SessionState): string {
+    return JSON.stringify(session, (key, value) => {
+      if (value instanceof Date) {
+        return { __type: 'Date', value: value.toISOString() };
+      }
+      return value;
+    });
+  }
+
+  private deserialize(data: string): SessionState {
+    return JSON.parse(data, (key, value) => {
+      if (value && typeof value === 'object' && value.__type === 'Date') {
+        return new Date(value.value);
+      }
+      return value;
+    });
+  }
 
   // ===========================================
   // CRUD Operations
   // ===========================================
 
-  /**
-   * Create a new session
-   */
   async create(input: SessionInput): Promise<SessionState> {
+    await this.ensureClient();
+
     const sessionId = input.sessionId || crypto.randomUUID();
     const session: SessionState = {
       id: sessionId,
@@ -116,32 +166,61 @@ export class SessionStore {
       errors: [],
     };
 
-    this.sessions.set(session.id, session);
+    const key = this.sessionKey(session.id);
+    const pipeline = this.client.pipeline();
+
+    pipeline.set(key, this.serialize(session));
+    pipeline.expire(key, REDIS_CONFIG.SESSION_TTL);
+    pipeline.sadd(REDIS_CONFIG.INDEX_KEY, session.id);
+
+    await pipeline.exec();
+
     return session;
   }
 
-  /**
-   * Get a session by ID
-   */
   async get(sessionId: string): Promise<SessionState> {
-    const session = this.sessions.get(sessionId);
-    if (!session) {
+    await this.ensureClient();
+
+    const data = await this.client.get(this.sessionKey(sessionId));
+    if (!data) {
       throw new Error(`Session ${sessionId} not found`);
     }
-    return session;
+    return this.deserialize(data);
   }
 
-  /**
-   * Get all sessions
-   */
   async getAll(): Promise<SessionState[]> {
-    return Array.from(this.sessions.values());
+    await this.ensureClient();
+
+    const sessionIds: string[] = await this.client.smembers(REDIS_CONFIG.INDEX_KEY);
+    if (sessionIds.length === 0) {
+      return [];
+    }
+
+    const keys = sessionIds.map((id: string) => this.sessionKey(id));
+    const results = await this.client.mget(...keys);
+
+    const sessions: SessionState[] = [];
+    for (let i = 0; i < results.length; i++) {
+      const data = results[i];
+      if (data) {
+        try {
+          sessions.push(this.deserialize(data));
+        } catch {
+          // Remove invalid session from index
+          await this.client.srem(REDIS_CONFIG.INDEX_KEY, sessionIds[i]);
+        }
+      } else {
+        // Session expired, remove from index
+        await this.client.srem(REDIS_CONFIG.INDEX_KEY, sessionIds[i]);
+      }
+    }
+
+    return sessions;
   }
 
-  /**
-   * Update session
-   */
   async update(sessionId: string, updates: Partial<SessionState>): Promise<SessionState> {
+    await this.ensureClient();
+
     const session = await this.get(sessionId);
 
     const updated: SessionState = {
@@ -154,24 +233,30 @@ export class SessionStore {
       },
     };
 
-    this.sessions.set(sessionId, updated);
+    const key = this.sessionKey(sessionId);
+    await this.client.set(key, this.serialize(updated));
+
+    // Refresh TTL for active sessions
+    if (!['completed', 'failed'].includes(updated.status)) {
+      await this.client.expire(key, REDIS_CONFIG.ACTIVE_SESSION_TTL);
+    }
+
     return updated;
   }
 
-  /**
-   * Delete a session
-   */
   async delete(sessionId: string): Promise<void> {
-    this.sessions.delete(sessionId);
+    await this.ensureClient();
+
+    const pipeline = this.client.pipeline();
+    pipeline.del(this.sessionKey(sessionId));
+    pipeline.srem(REDIS_CONFIG.INDEX_KEY, sessionId);
+    await pipeline.exec();
   }
 
   // ===========================================
   // Phase Update Methods
   // ===========================================
 
-  /**
-   * Update research phase results
-   */
   async updateResearch(
     sessionId: string,
     data: Partial<NonNullable<SessionState['research']>>
@@ -187,9 +272,6 @@ export class SessionStore {
     });
   }
 
-  /**
-   * Update production phase results
-   */
   async updateProduction(
     sessionId: string,
     data: Partial<NonNullable<SessionState['production']>>
@@ -205,9 +287,6 @@ export class SessionStore {
     });
   }
 
-  /**
-   * Update quality phase results
-   */
   async updateQuality(
     sessionId: string,
     data: Partial<NonNullable<SessionState['quality']>>
@@ -224,9 +303,6 @@ export class SessionStore {
     });
   }
 
-  /**
-   * Update publishing phase results
-   */
   async updatePublishing(
     sessionId: string,
     data: Partial<NonNullable<SessionState['publishing']>>
@@ -246,15 +322,13 @@ export class SessionStore {
   // Status Management
   // ===========================================
 
-  /**
-   * Set session status
-   */
   async setStatus(sessionId: string, status: SessionStatus): Promise<SessionState> {
     const updates: Partial<SessionState> = { status };
 
     if (status === 'completed' || status === 'failed') {
+      const session = await this.get(sessionId);
       updates.metadata = {
-        ...((await this.get(sessionId)).metadata),
+        ...session.metadata,
         completedAt: new Date(),
       };
     }
@@ -262,16 +336,10 @@ export class SessionStore {
     return this.update(sessionId, updates);
   }
 
-  /**
-   * Mark session as completed
-   */
   async complete(sessionId: string): Promise<SessionState> {
     return this.setStatus(sessionId, 'completed');
   }
 
-  /**
-   * Mark session as failed
-   */
   async fail(sessionId: string, error: string): Promise<SessionState> {
     const session = await this.get(sessionId);
 
@@ -297,9 +365,6 @@ export class SessionStore {
   // Cost Tracking
   // ===========================================
 
-  /**
-   * Add cost to session
-   */
   async addCost(sessionId: string, cost: number): Promise<SessionState> {
     const session = await this.get(sessionId);
 
@@ -311,9 +376,6 @@ export class SessionStore {
     });
   }
 
-  /**
-   * Get total cost
-   */
   async getTotalCost(sessionId: string): Promise<number> {
     const session = await this.get(sessionId);
     return session.metadata.totalCost;
@@ -323,9 +385,6 @@ export class SessionStore {
   // Checkpoint Management
   // ===========================================
 
-  /**
-   * Add checkpoint
-   */
   async addCheckpoint(
     sessionId: string,
     phase: string,
@@ -349,9 +408,6 @@ export class SessionStore {
     return checkpointId;
   }
 
-  /**
-   * Get checkpoints
-   */
   async getCheckpoints(sessionId: string): Promise<SessionState['checkpoints']> {
     const session = await this.get(sessionId);
     return session.checkpoints;
@@ -361,33 +417,18 @@ export class SessionStore {
   // Query Methods
   // ===========================================
 
-  /**
-   * Get sessions by status
-   */
   async getByStatus(status: SessionStatus): Promise<SessionState[]> {
     const all = await this.getAll();
     return all.filter(s => s.status === status);
   }
 
-  /**
-   * Get active sessions (not completed or failed)
-   */
   async getActive(): Promise<SessionState[]> {
     const all = await this.getAll();
     return all.filter(s => !['completed', 'failed'].includes(s.status));
   }
 
-  /**
-   * Get sessions by video type
-   */
   async getByVideoType(videoType: VideoType): Promise<SessionState[]> {
     const all = await this.getAll();
     return all.filter(s => s.input.videoType === videoType);
   }
 }
-
-// ===========================================
-// Default Export
-// ===========================================
-
-export const sessionStore = new SessionStore();

@@ -92,6 +92,7 @@ export class ArtEvaluator extends BaseAgent<ArtEvaluatorInput, ArtEvaluatorOutpu
 
   // Uses Gemini 3 Pro for nuanced creative evaluation
   protected model = gemini3Pro;
+  protected modelId = 'gemini-3-pro';
   protected temperature = 0.4;
   protected maxOutputTokens = 16384;
 

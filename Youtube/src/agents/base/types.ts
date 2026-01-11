@@ -122,6 +122,7 @@ export const VideoTypeSchema = z.enum(['shorts', 'medium', 'longform']);
 export type VideoType = z.infer<typeof VideoTypeSchema>;
 
 export interface SessionInput {
+  sessionId?: string;
   idea: string;
   videoType: VideoType;
   targetAudience?: string;

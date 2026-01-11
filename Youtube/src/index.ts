@@ -78,31 +78,29 @@ export const testGenerateFlow = ai.defineFlow(
 // Cost Estimation
 // ===========================================
 
+// Re-export cost estimation from centralized config
+import { quickEstimate, calculateDetailedCost, type CostBreakdown } from './config/costOptimization.js';
+export { quickEstimate, calculateDetailedCost, type CostBreakdown };
+
+// Convenience function matching legacy API
 export function getCostEstimate(
   videoType: 'shorts' | 'medium' | 'longform',
   useFast: boolean = true
 ): { estimated: number; breakdown: { research: number; production: number; quality: number } } {
-  const costs = {
-    shorts: {
-      fast: { research: 0.15, production: 9.00, quality: 1.50 },
-      standard: { research: 0.15, production: 24.00, quality: 1.50 },
-    },
-    medium: {
-      fast: { research: 0.25, production: 45.00, quality: 2.00 },
-      standard: { research: 0.25, production: 120.00, quality: 2.00 },
-    },
-    longform: {
-      fast: { research: 0.50, production: 135.00, quality: 3.00 },
-      standard: { research: 0.50, production: 360.00, quality: 3.00 },
-    },
-  };
+  const total = quickEstimate(videoType, useFast);
 
-  const mode = useFast ? 'fast' : 'standard';
-  const cost = costs[videoType][mode];
+  // Approximate breakdown based on typical distribution
+  const researchRatio = 0.02;  // ~2% of total
+  const qualityRatio = 0.10;   // ~10% of total
+  const productionRatio = 0.88; // ~88% of total
 
   return {
-    estimated: cost.research + cost.production + cost.quality,
-    breakdown: cost,
+    estimated: total,
+    breakdown: {
+      research: total * researchRatio,
+      production: total * productionRatio,
+      quality: total * qualityRatio,
+    },
   };
 }
 

@@ -5,7 +5,7 @@
  * Handles scene generation, extension, and quality optimization.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import { veo31 } from '../../genkit.config.js';
 import type { AgentContext, AgentResult } from '../base/types.js';
@@ -123,6 +123,9 @@ export class VideoAgent extends BaseAgent<VideoAgentInput, VideoAgentOutput> {
 
     try {
       console.log(`[VideoAgent] Starting generation for ${input.storyboard.scenes.length} scenes`);
+      if (context.sessionId) {
+        this.veoClient.setSession(context.sessionId);
+      }
 
       // Get aspect ratio based on video type
       const aspectRatio = this.getAspectRatio(input.storyboard.videoType);

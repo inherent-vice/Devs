@@ -226,6 +226,11 @@ export function VoiceSelector({
 
       const data = await response.json();
 
+      if (data.error) {
+        toast.error(data.error);
+        return;
+      }
+
       if (data.audioBase64) {
         // Convert base64 to blob URL
         const audioBlob = base64ToBlob(data.audioBase64, "audio/wav");
@@ -233,8 +238,8 @@ export function VoiceSelector({
         setPreviewAudioUrl(audioUrl);
       } else if (data.audioUrl) {
         setPreviewAudioUrl(data.audioUrl);
-      } else if (data.mock) {
-        toast.info(data.message || "TTS 서비스에 연결할 수 없습니다");
+      } else {
+        toast.error("음성 데이터를 받지 못했습니다");
       }
     } catch (error) {
       console.error("Preview generation error:", error);

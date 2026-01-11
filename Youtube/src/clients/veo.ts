@@ -209,6 +209,7 @@ export class VeoClient {
     totalCost: number;
     totalDuration: number;
   }> {
+    this.setSession(options.sessionId);
     const clips: Array<VeoGenerationResult & { sceneId: string }> = [];
     let totalCost = 0;
     let totalDuration = 0;
@@ -258,21 +259,36 @@ export class VeoClient {
       throw new Error(`Target duration ${request.targetDuration}s exceeds maximum ${VEO_CONFIG.maxTotalDuration}s`);
     }
 
-    // Call extension API
-    const response = await this.callVeoExtendAPI(request);
+    try {
+      // Call extension API
+      const response = await this.callVeoExtendAPI(request);
 
-    const generationTimeMs = Date.now() - startTime;
-    const cost = this.calculateCost(request.targetDuration, false);
+      const generationTimeMs = Date.now() - startTime;
+      const cost = this.calculateCost(request.targetDuration, false);
 
-    return {
-      videoUrl: response.url,
-      fileId: response.fileId,
-      duration: request.targetDuration,
-      resolution: '1080p',
-      hasAudio: false,
-      cost,
-      generationTimeMs,
-    };
+      return {
+        videoUrl: response.url,
+        fileId: response.fileId,
+        duration: request.targetDuration,
+        resolution: '1080p',
+        hasAudio: false,
+        cost,
+        generationTimeMs,
+      };
+    } catch (error) {
+      console.warn('[VeoClient] Extend API unavailable, generating fallback clip.');
+      const fallbackDuration = this.getSupportedDuration(request.targetDuration);
+      const fallback = await this.generate({
+        prompt: `${request.prompt}. Continue the scene seamlessly.`,
+        duration: fallbackDuration,
+        aspectRatio: '16:9',
+        resolution: '1080p',
+        fps: 24,
+        generateAudio: false,
+        model: 'veo-3.1',
+      });
+      return fallback;
+    }
   }
 
   // ===========================================
@@ -528,12 +544,16 @@ ${request.negativePrompt ? `\nAvoid: ${request.negativePrompt}` : ''}`;
 
     const apiUrl = `https://${this.location}-aiplatform.googleapis.com/v1/projects/${this.projectId}/locations/${this.location}/${endpoint}:generateVideo`;
 
+    const referenceImage = request.referenceImages?.length
+      ? await this.resolveReferenceImage(request.referenceImages[0])
+      : null;
+
     const requestBody = {
       instances: [{
         prompt: request.prompt,
         ...(request.negativePrompt && { negativePrompt: request.negativePrompt }),
-        ...(request.referenceImages?.length && {
-          image: { bytesBase64Encoded: request.referenceImages[0] },
+        ...(referenceImage && {
+          image: { bytesBase64Encoded: referenceImage },
         }),
       }],
       parameters: {
@@ -644,8 +664,60 @@ ${request.negativePrompt ? `\nAvoid: ${request.negativePrompt}` : ''}`;
   ): Promise<{ url: string; fileId: string }> {
     console.log(`[VeoClient] Extending video to ${request.targetDuration}s`);
 
-    // TODO: Implement actual Veo extend API
+    // Extend API not yet available; caller will fallback to clip generation.
     throw new Error('Veo extension API integration pending.');
+  }
+
+  private isLikelyBase64(value: string): boolean {
+    if (value.length < 100) return false;
+    return /^[A-Za-z0-9+/=]+$/.test(value);
+  }
+
+  private async resolveReferenceImage(reference: string): Promise<string | null> {
+    try {
+      if (!reference) return null;
+
+      if (reference.startsWith('data:')) {
+        const [, base64] = reference.split(',');
+        return base64 || null;
+      }
+
+      if (this.isLikelyBase64(reference)) {
+        return reference;
+      }
+
+      if (reference.startsWith('gs://')) {
+        const match = reference.match(/gs:\/\/([^\/]+)\/(.+)/);
+        if (match) {
+          const httpUrl = `https://storage.googleapis.com/${match[1]}/${match[2]}`;
+          const response = await fetch(httpUrl);
+          if (!response.ok) return null;
+          const buffer = Buffer.from(await response.arrayBuffer());
+          return buffer.toString('base64');
+        }
+      }
+
+      if (reference.startsWith('http://') || reference.startsWith('https://')) {
+        const response = await fetch(reference);
+        if (!response.ok) return null;
+        const buffer = Buffer.from(await response.arrayBuffer());
+        return buffer.toString('base64');
+      }
+
+      if (fs.existsSync(reference)) {
+        return fs.readFileSync(reference).toString('base64');
+      }
+    } catch (error) {
+      console.warn('[VeoClient] Failed to resolve reference image:', error);
+    }
+
+    return null;
+  }
+
+  private getSupportedDuration(targetDuration: number): 4 | 6 | 8 {
+    if (targetDuration >= 8) return 8;
+    if (targetDuration >= 6) return 6;
+    return 4;
   }
 
   // ===========================================

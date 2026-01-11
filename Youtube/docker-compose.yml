@@ -1,0 +1,44 @@
+# YouTube Agentic AI - Local Development Environment
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # Redis for session storage and job queue
+  redis:
+    image: redis:7-alpine
+    container_name: youtube-ai-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Commander - Web UI for Redis (optional, development only)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: youtube-ai-redis-ui
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles:
+      - dev-tools
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: youtube-ai-network

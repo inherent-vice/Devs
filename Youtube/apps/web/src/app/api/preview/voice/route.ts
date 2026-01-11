@@ -65,62 +65,49 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // In production, call actual TTS API here
-    // For now, we'll check if the backend API is available
-    try {
-      // Try to call the backend TTS API
-      const ttsResponse = await fetch(`${BACKEND_URL}/api/tts/preview`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: body.text,
-          voice: body.voiceName,
-          speed: body.speed || 1.0,
-          pitch: body.pitch || 0,
-          emotion: body.emotion,
-        }),
-        signal: AbortSignal.timeout(TIMEOUTS.API_DEFAULT),
-      });
+    // Call the backend TTS API
+    const ttsResponse = await fetch(`${BACKEND_URL}/api/tts/preview`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: body.text,
+        voice: body.voiceName,
+        speed: body.speed || 1.0,
+        pitch: body.pitch || 0,
+        emotion: body.emotion,
+      }),
+      signal: AbortSignal.timeout(TIMEOUTS.API_DEFAULT),
+    });
 
-      if (ttsResponse.ok) {
-        const ttsData = await ttsResponse.json();
-
-        // Cache the result
-        if (ttsData.audioBase64) {
-          previewCache.set(cacheKey, {
-            audioBase64: ttsData.audioBase64,
-            timestamp: Date.now(),
-          });
-        }
-
-        return NextResponse.json({
-          audioBase64: ttsData.audioBase64,
-          audioUrl: ttsData.audioUrl,
-          duration: ttsData.duration || estimateDuration(body.text, body.speed || 1),
-          voice: voice,
-        });
-      }
-    } catch (backendError) {
-      console.log("Backend TTS not available, using mock response");
+    if (!ttsResponse.ok) {
+      const errorText = await ttsResponse.text().catch(() => "Unknown error");
+      throw new Error(`TTS API failed: ${ttsResponse.status} - ${errorText}`);
     }
 
-    // If backend is not available, return mock response
-    // In production, this should fail gracefully or use a fallback
+    const ttsData = await ttsResponse.json();
+
+    // Cache the result
+    if (ttsData.audioBase64) {
+      previewCache.set(cacheKey, {
+        audioBase64: ttsData.audioBase64,
+        timestamp: Date.now(),
+      });
+    }
+
     return NextResponse.json({
-      audioBase64: null,
-      audioUrl: null,
-      duration: estimateDuration(body.text, body.speed || 1),
+      audioBase64: ttsData.audioBase64,
+      audioUrl: ttsData.audioUrl,
+      duration: ttsData.duration || estimateDuration(body.text, body.speed || 1),
       voice: voice,
-      mock: true,
-      message: "TTS 서비스에 연결할 수 없습니다. 실제 음성 생성은 워크플로우 실행 시 진행됩니다.",
     });
 
   } catch (error) {
     console.error("Voice preview error:", error);
+    const message = error instanceof Error ? error.message : "음성 미리듣기 생성 중 오류가 발생했습니다";
     return NextResponse.json(
-      { error: "음성 미리듣기 생성 중 오류가 발생했습니다" },
+      { error: message },
       { status: 500 }
     );
   }

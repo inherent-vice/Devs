@@ -5,7 +5,7 @@
  * Supports natural language prompts for style, accent, pace, and emotion control.
  */
 
-import { z } from 'zod';
+import { z, ZodSchema } from 'zod';
 import { BaseAgent } from '../base/BaseAgent.js';
 import type { AgentContext, AgentResult } from '../base/types.js';
 import {

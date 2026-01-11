@@ -5,7 +5,7 @@
  * All clients require valid API credentials.
  */
 
-// Google Drive (replaces Cloud Storage)
+// Google Drive (file storage)
 import { DriveClient, getDriveClient } from './drive.js';
 export {
   DriveClient,
@@ -15,19 +15,7 @@ export {
   type DriveFolderStructure,
 } from './drive.js';
 
-// Text-to-Speech (Legacy Cloud TTS)
-import { TTSClient, getTTSClient } from './tts.js';
-export {
-  TTSClient,
-  getTTSClient,
-  VoicePresets,
-  type TTSVoice,
-  type TTSRequest,
-  type TTSResult,
-  type TTSUploadResult,
-} from './tts.js';
-
-// Gemini TTS (Recommended - uses Gemini 2.5 Flash TTS)
+// Gemini TTS (Text-to-Speech using Gemini 2.5 Flash)
 import { GeminiTTSClient, getGeminiTTSClient } from './gemini-tts.js';
 export {
   GeminiTTSClient,
@@ -49,18 +37,7 @@ export {
   type VeoExtendRequest,
 } from './veo.js';
 
-// Imagen (Legacy) Image Generation
-import { ImagenClient, getImagenClient } from './imagen.js';
-export {
-  ImagenClient,
-  getImagenClient,
-  type ImagenGenerationRequest,
-  type ImagenGenerationResult,
-  type ThumbnailGenerationRequest,
-  type ThumbnailResult,
-} from './imagen.js';
-
-// Nano Banana Pro (Gemini 3 Pro Image) - Recommended
+// Nano Banana Pro (Gemini 3 Pro Image) - Image Generation
 import { NanoBananaClient, getNanoBananaClient } from './nano-banana.js';
 export {
   NanoBananaClient,
@@ -69,8 +46,8 @@ export {
   type NanoBananaResult,
   type SceneImageRequest,
   type SceneImageResult,
-  type ThumbnailRequest as NanoBananaThumbnailRequest,
-  type ThumbnailResult as NanoBananaThumbnailResult,
+  type ThumbnailRequest,
+  type ThumbnailResult,
   type ThumbnailVariant,
 } from './nano-banana.js';
 
@@ -105,16 +82,16 @@ export {
   type VideoCompositionResult,
 } from './video-composer.js';
 
-// Convenience function to check all clients
+// Initialize all clients
 export async function initializeAllClients(): Promise<void> {
   console.log('[Clients] Initializing all API clients...');
 
   const drive = getDriveClient();
   await drive.initialize();
 
-  getGeminiTTSClient(); // Using Gemini TTS (no ADC required)
+  getGeminiTTSClient();
   getVeoClient();
-  getImagenClient();
+  getNanoBananaClient();
   getYouTubeClient();
 
   console.log('[Clients] All clients initialized.');

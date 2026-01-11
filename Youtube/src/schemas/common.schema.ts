@@ -38,6 +38,7 @@ export type Severity = z.infer<typeof SeveritySchema>;
 // ===========================================
 
 export const SessionInputSchema = z.object({
+  sessionId: z.string().min(1).optional().describe('Optional session ID override'),
   idea: z.string().min(10).max(500).describe('Video idea or topic'),
   videoType: VideoTypeSchema.describe('Type of video to produce'),
   targetAudience: z.string().max(200).optional().describe('Target audience'),
